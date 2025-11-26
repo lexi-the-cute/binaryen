@@ -1759,7 +1759,8 @@ struct Asyncify : public Pass {
       String::Split::NewLineOr(","));
     auto asserts = hasArgument("asyncify-asserts");
     auto verbose = hasArgument("asyncify-verbose");
-    auto relocatable = hasArgument("asyncify-relocatable");
+    auto importGlobals = hasArgument("asyncify-relocatable");
+    auto exportGlobals = hasArgument("asyncify-export-globals");
     auto secondaryMemory = hasArgument("asyncify-in-secondary-memory");
     auto propagateAddList = hasArgument("asyncify-propagate-addlist");
 
@@ -1826,7 +1827,7 @@ struct Asyncify : public Pass {
                             verbose);
 
     // Add necessary globals before we emit code to use them.
-    addGlobals(module, relocatable);
+    addGlobals(module, importGlobals, exportGlobals);
 
     // Compute the set of functions we will instrument. All of the passes we run
     // below only need to run there.
@@ -1904,8 +1905,11 @@ struct Asyncify : public Pass {
   }
 
 private:
-  void addGlobals(Module* module, bool imported) {
+  void addGlobals(Module* module, bool imported, bool exported) {
     Builder builder(*module);
+    // It doesn't make sense to both import and export these globals at the
+    // same time.
+    assert(!(imported && exported));
 
     auto asyncifyState = builder.makeGlobal(ASYNCIFY_STATE,
                                             Type::i32,
@@ -1926,6 +1930,13 @@ private:
       asyncifyData->base = ASYNCIFY_DATA;
     }
     module->addGlobal(std::move(asyncifyData));
+
+    if (exported) {
+      module->addExport(builder.makeExport(
+        ASYNCIFY_STATE, ASYNCIFY_STATE, ExternalKind::Global));
+      module->addExport(
+        builder.makeExport(ASYNCIFY_DATA, ASYNCIFY_DATA, ExternalKind::Global));
+    }
   }
 
   void addFunctions(Module* module) {
